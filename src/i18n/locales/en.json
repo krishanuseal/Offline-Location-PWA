@@ -20,7 +20,9 @@
     "getting": "Getting location...",
     "captured": "Location captured",
     "willCapture": "Location will be captured on submit",
-    "coordinates": "Lat: {{lat}}, Lng: {{lng}}"
+    "coordinates": "Lat: {{lat}}, Lng: {{lng}}",
+    "openInMaps": "Open location in maps",
+    "viewMap": "View"
   },
   "session": {
     "current": "Current Session"

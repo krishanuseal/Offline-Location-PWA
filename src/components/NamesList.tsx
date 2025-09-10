@@ -11,28 +11,67 @@ export function NamesList({ names }: NamesListProps) {
   const { t } = useTranslation();
   
   const openLocationInMaps = (latitude: number, longitude: number) => {
-    // Create Google Maps URL with the coordinates
-    const mapsUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
+    // Create Google Maps URLs
+    const webMapsUrl = `https://www.google.com/maps?q=${latitude},${longitude}&z=15`;
+    const androidMapsUrl = `geo:${latitude},${longitude}?q=${latitude},${longitude}&z=15`;
+    const iosMapsUrl = `maps://maps.google.com/maps?q=${latitude},${longitude}&z=15`;
     
-    // Try to open in Google Maps app first (Android), fallback to web
-    const androidMapsUrl = `geo:${latitude},${longitude}?q=${latitude},${longitude}`;
-    
-    // Check if we're on Android and try to open the native app
+    // Detect device type
     const isAndroid = /Android/i.test(navigator.userAgent);
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isMobile = isAndroid || isIOS;
     
-    if (isAndroid) {
-      // Try to open in Google Maps app
-      const link = document.createElement('a');
-      link.href = androidMapsUrl;
-      link.click();
+    if (isMobile) {
+      // For mobile devices, try to open native app first
+      const nativeUrl = isIOS ? iosMapsUrl : androidMapsUrl;
       
-      // Fallback to web version after a short delay if app doesn't open
+      // Create a temporary link to trigger the native app
+      const tempLink = document.createElement('a');
+      tempLink.href = nativeUrl;
+      tempLink.style.display = 'none';
+      document.body.appendChild(tempLink);
+      
+      // Add event listeners to handle success/failure
+      let appOpened = false;
+      
+      const cleanup = () => {
+        document.body.removeChild(tempLink);
+        window.removeEventListener('blur', onBlur);
+        window.removeEventListener('focus', onFocus);
+      };
+      
+      const onBlur = () => {
+        appOpened = true;
+        setTimeout(cleanup, 100);
+      };
+      
+      const onFocus = () => {
+        setTimeout(() => {
+          if (!appOpened) {
+            // Native app didn't open, fallback to web
+            window.open(webMapsUrl, '_blank');
+          }
+          cleanup();
+        }, 300);
+      };
+      
+      window.addEventListener('blur', onBlur);
+      window.addEventListener('focus', onFocus);
+      
+      // Try to open native app
+      tempLink.click();
+      
+      // Fallback timeout in case blur/focus events don't fire
       setTimeout(() => {
-        window.open(mapsUrl, '_blank');
-      }, 1000);
+        if (!appOpened) {
+          window.open(webMapsUrl, '_blank');
+          cleanup();
+        }
+      }, 2000);
+      
     } else {
-      // For non-Android devices, open web version
-      window.open(mapsUrl, '_blank');
+      // For desktop, open web version directly
+      window.open(webMapsUrl, '_blank');
     }
   };
   
@@ -88,15 +127,18 @@ export function NamesList({ names }: NamesListProps) {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => openLocationInMaps(entry.location!.latitude, entry.location!.longitude)}
-                    className="flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors duration-150 cursor-pointer"
-                    title="Open in Maps"
+                    className="flex items-center gap-2 text-blue-600 hover:text-blue-800 active:text-blue-900 transition-colors duration-150 cursor-pointer p-1 rounded hover:bg-blue-50 active:bg-blue-100"
+                    title={t('location.openInMaps')}
+                    type="button"
                   >
                     <MapPin size={14} />
+                    <span className="text-xs font-medium">{t('location.viewMap')}</span>
                   </button>
-                  <span>{t('location.coordinates', { 
+                  <span className="text-xs">{t('location.coordinates', { 
                     lat: entry.location.latitude.toFixed(6), 
                     lng: entry.location.longitude.toFixed(6) 
-                  })} <span className="text-gray-400 ml-1">(±{entry.location.accuracy.toFixed(0)}m)</span></span>
+                  })}</span>
+                  <span className="text-gray-400 text-xs">(±{entry.location.accuracy.toFixed(0)}m)</span>
                 </div>
               ) : (
                 <div className="flex items-center gap-2 text-gray-400">
