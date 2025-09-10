@@ -59,11 +59,19 @@ export function useIndexedDB() {
     try {
       const transaction = database.transaction(['names'], 'readonly');
       const store = transaction.objectStore('names');
-      const request = store.getAll();
       
-      request.onsuccess = () => {
-        setNames(request.result);
-      };
+      return new Promise<void>((resolve, reject) => {
+        const request = store.getAll();
+        
+        request.onsuccess = () => {
+          setNames(request.result);
+          resolve();
+        };
+        
+        request.onerror = () => {
+          reject(request.error);
+        };
+      });
     } catch (error) {
       console.error('Failed to load names:', error);
     }
@@ -124,34 +132,50 @@ export function useIndexedDB() {
     if (!db) return;
 
     try {
-      const transaction = db.transaction(['pendingSync'], 'readwrite');
-      const store = transaction.objectStore('pendingSync');
-      const request = store.getAll();
-      
-      request.onsuccess = async () => {
-        const pendingItems = request.result;
+      // Get pending items
+      const pendingItems = await new Promise<any[]>((resolve, reject) => {
+        const transaction = db.transaction(['pendingSync'], 'readonly');
+        const store = transaction.objectStore('pendingSync');
+        const request = store.getAll();
         
-        for (const item of pendingItems) {
-          try {
-            // Simulate API call (replace with actual endpoint)
-            console.log('Syncing:', item.data);
-            
-            // Mark as synced in names store
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+      // Process each pending item
+      for (const item of pendingItems) {
+        try {
+          console.log('Syncing:', item.data);
+          
+          // Mark as synced in names store
+          await new Promise<void>((resolve, reject) => {
             const namesTransaction = db.transaction(['names'], 'readwrite');
             const namesStore = namesTransaction.objectStore('names');
             const nameData = { ...item.data, synced: true };
-            namesStore.put(nameData);
+            const putRequest = namesStore.put(nameData);
             
-            // Remove from pending sync
-            store.delete(item.id);
-          } catch (error) {
-            console.error('Failed to sync item:', item.id, error);
-          }
+            putRequest.onsuccess = () => resolve();
+            putRequest.onerror = () => reject(putRequest.error);
+          });
+          
+          // Remove from pending sync
+          await new Promise<void>((resolve, reject) => {
+            const syncTransaction = db.transaction(['pendingSync'], 'readwrite');
+            const syncStore = syncTransaction.objectStore('pendingSync');
+            const deleteRequest = syncStore.delete(item.id);
+            
+            deleteRequest.onsuccess = () => resolve();
+            deleteRequest.onerror = () => reject(deleteRequest.error);
+          });
+          
+        } catch (error) {
+          console.error('Failed to sync item:', item.id, error);
         }
-        
-        // Reload names to reflect sync status
-        await loadNames(db);
-      };
+      }
+      
+      // Reload names to reflect sync status
+      await loadNames(db);
+      
     } catch (error) {
       console.error('Failed to sync pending data:', error);
     }
@@ -161,32 +185,29 @@ export function useIndexedDB() {
     if (!db) return;
 
     try {
-      // Find the record to get its details for Supabase deletion
+      // Find the record to get its details
       const record = names.find(name => name.id === id);
-      
-      // Delete from IndexedDB
-      const transaction = db.transaction(['names'], 'readwrite');
-      const store = transaction.objectStore('names');
-      const request = store.delete(id);
-      
-      request.onsuccess = async () => {
-        // Update local state
-        setNames(prev => prev.filter(name => name.id !== id));
+      if (!record) {
+        console.warn('Record not found for deletion:', id);
+        return;
+      }
+
+      // Delete from IndexedDB using a promise-based approach
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(['names'], 'readwrite');
+        const store = transaction.objectStore('names');
+        const request = store.delete(id);
         
-        // If the record was synced, also delete from Supabase
-        if (record?.synced) {
-          try {
-            // Note: This requires the record to have been synced with a server ID
-            // For now, we'll just log this - in a full implementation, you'd need
-            // to track the server ID when syncing
-            console.log('Record deleted locally. Server cleanup may be needed for:', record);
-          } catch (error) {
-            console.error('Failed to delete from server:', error);
-          }
-        }
-        
-        // Also remove from pending sync if it exists there
-        try {
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+
+      // Update local state immediately
+      setNames(prev => prev.filter(name => name.id !== id));
+
+      // Clean up pending sync if needed
+      try {
+        await new Promise<void>((resolve, reject) => {
           const pendingTransaction = db.transaction(['pendingSync'], 'readwrite');
           const pendingStore = pendingTransaction.objectStore('pendingSync');
           const pendingRequest = pendingStore.getAll();
@@ -194,24 +215,29 @@ export function useIndexedDB() {
           pendingRequest.onsuccess = () => {
             const pendingItems = pendingRequest.result;
             const itemToDelete = pendingItems.find(item => 
-              item.data.timestamp === record?.timestamp && 
-              item.data.name === record?.name
+              item.data.timestamp === record.timestamp && 
+              item.data.name === record.name
             );
             
             if (itemToDelete) {
-              pendingStore.delete(itemToDelete.id);
+              const deleteRequest = pendingStore.delete(itemToDelete.id);
+              deleteRequest.onsuccess = () => resolve();
+              deleteRequest.onerror = () => reject(deleteRequest.error);
+            } else {
+              resolve();
             }
           };
-        } catch (error) {
-          console.error('Failed to clean up pending sync:', error);
-        }
-      };
+          
+          pendingRequest.onerror = () => reject(pendingRequest.error);
+        });
+      } catch (error) {
+        console.error('Failed to clean up pending sync:', error);
+      }
+      console.log('Record deleted successfully:', record.name);
       
-      request.onerror = () => {
-        console.error('Failed to delete record:', request.error);
-      };
     } catch (error) {
       console.error('Failed to delete record:', error);
+      throw error;
     }
   };
   return {
