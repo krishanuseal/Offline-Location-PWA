@@ -50,7 +50,7 @@ export function useSupabaseSync() {
   }, []);
 
   // Sync all unsynced records from IndexedDB to Supabase
-  const syncAllRecords = useCallback(async (unsyncedRecords: NameEntry[]): Promise<void> => {
+  const syncAllRecords = async (unsyncedRecords: NameEntry[]): Promise<void> => {
     if (!isOnline || unsyncedRecords.length === 0) return;
 
     setIsSyncing(true);
@@ -76,10 +76,10 @@ export function useSupabaseSync() {
     } finally {
       setIsSyncing(false);
     }
-  }, [isOnline, syncRecordToSupabase]);
+  };
 
   // Fetch all records from Supabase
-  const fetchAllRecords = useCallback(async (): Promise<OnboardingRecord[]> => {
+  const fetchAllRecords = async (): Promise<OnboardingRecord[]> => {
     try {
       const { data, error } = await supabase
         .from('onboarding_records')
@@ -96,10 +96,10 @@ export function useSupabaseSync() {
       console.error('Failed to fetch records:', error);
       return [];
     }
-  }, []);
+  };
 
   // Migrate existing IndexedDB records to Supabase
-  const migrateLocalRecords = useCallback(async (localRecords: NameEntry[]): Promise<void> => {
+  const migrateLocalRecords = async (localRecords: NameEntry[]): Promise<void> => {
     if (!isOnline || localRecords.length === 0) return;
 
     console.log(`Starting migration of ${localRecords.length} local records to Supabase...`);
@@ -148,7 +148,7 @@ export function useSupabaseSync() {
     } finally {
       setIsSyncing(false);
     }
-  }, [isOnline]);
+  };
 
   return {
     isOnline,

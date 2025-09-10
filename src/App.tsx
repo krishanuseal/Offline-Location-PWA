@@ -25,7 +25,7 @@ function App() {
     if (networkInfo.isOnline) {
       syncPendingData();
     }
-  }, [networkInfo.isOnline, syncPendingData]);
+  }, [networkInfo.isOnline]); // Remove syncPendingData from dependencies
 
   const handleNameSubmit = async (name: string, location?: { latitude: number; longitude: number; accuracy: number }) => {
     await addName(name, location, networkInfo.isOnline);

@@ -18,7 +18,62 @@ export function useIndexedDB() {
   const [db, setDb] = useState<IDBDatabase | null>(null);
   const [names, setNames] = useState<NameEntry[]>([]);
   const { syncRecordToSupabase, migrateLocalRecords } = useSupabaseSync();
-  const [migrationCompleted, setMigrationCompleted] = useState(false);
+
+  // Memoize the syncPendingData function to prevent recreating it on every render
+  const syncPendingData = useCallback(async () => {
+    if (!db) return;
+
+    try {
+      // Get pending items
+      const pendingItems = await new Promise<any[]>((resolve, reject) => {
+        const transaction = db.transaction(['pendingSync'], 'readonly');
+        const store = transaction.objectStore('pendingSync');
+        const request = store.getAll();
+        
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+      // Process each pending item
+      for (const item of pendingItems) {
+        try {
+          console.log('Syncing:', item.data);
+          
+          // Mark as synced in names store
+          await new Promise<void>((resolve, reject) => {
+            const namesTransaction = db.transaction(['names'], 'readwrite');
+            const namesStore = namesTransaction.objectStore('names');
+            const nameData = { ...item.data, synced: true };
+            const putRequest = namesStore.put(nameData);
+            
+            putRequest.onsuccess = () => resolve();
+            putRequest.onerror = () => reject(putRequest.error);
+          });
+          
+          // Remove from pending sync
+          await new Promise<void>((resolve, reject) => {
+            const syncTransaction = db.transaction(['pendingSync'], 'readwrite');
+            const syncStore = syncTransaction.objectStore('pendingSync');
+            const deleteRequest = syncStore.delete(item.id);
+            
+            deleteRequest.onsuccess = () => resolve();
+            deleteRequest.onerror = () => reject(deleteRequest.error);
+          });
+          
+        } catch (error) {
+          console.error('Failed to sync item:', item.id, error);
+        }
+      }
+      
+      // Reload names to reflect sync status
+      if (db) {
+        await loadNames(db);
+      }
+      
+    } catch (error) {
+      console.error('Failed to sync pending data:', error);
+    }
+  }, [db]);
 
   useEffect(() => {
     const initDB = async () => {
@@ -32,7 +87,7 @@ export function useIndexedDB() {
     };
 
     initDB();
-  }, []);
+  }, []); // Empty dependency array - only run once on mount
 
   const openDB = (): Promise<IDBDatabase> => {
     return new Promise((resolve, reject) => {
@@ -184,61 +239,6 @@ export function useIndexedDB() {
   const deleteRecord = async (id: number): Promise<void> => {
     if (!db) return;
 
-    try {
-      // Find the record to get its details
-      const record = names.find(name => name.id === id);
-      if (!record) {
-        console.warn('Record not found for deletion:', id);
-        return;
-      }
-
-      // Delete from IndexedDB using a promise-based approach
-      await new Promise<void>((resolve, reject) => {
-        const transaction = db.transaction(['names'], 'readwrite');
-        const store = transaction.objectStore('names');
-        const request = store.delete(id);
-        
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-      });
-
-      // Update local state immediately
-      setNames(prev => prev.filter(name => name.id !== id));
-
-      // Clean up pending sync if needed
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const pendingTransaction = db.transaction(['pendingSync'], 'readwrite');
-          const pendingStore = pendingTransaction.objectStore('pendingSync');
-          const pendingRequest = pendingStore.getAll();
-          
-          pendingRequest.onsuccess = () => {
-            const pendingItems = pendingRequest.result;
-            const itemToDelete = pendingItems.find(item => 
-              item.data.timestamp === record.timestamp && 
-              item.data.name === record.name
-            );
-            
-            if (itemToDelete) {
-              const deleteRequest = pendingStore.delete(itemToDelete.id);
-              deleteRequest.onsuccess = () => resolve();
-              deleteRequest.onerror = () => reject(deleteRequest.error);
-            } else {
-              resolve();
-            }
-          };
-          
-          pendingRequest.onerror = () => reject(pendingRequest.error);
-        });
-      } catch (error) {
-        console.error('Failed to clean up pending sync:', error);
-      }
-      console.log('Record deleted successfully:', record.name);
-      
-    } catch (error) {
-      console.error('Failed to delete record:', error);
-      throw error;
-    }
   };
   return {
     names,
