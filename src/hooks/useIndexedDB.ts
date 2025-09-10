@@ -211,7 +211,7 @@ export function useIndexedDB() {
       const store = transaction.objectStore('names');
       const request = store.add(nameEntry);
       
-      request.onsuccess = () => {
+      request.onsuccess = async () => {
         const newEntry = { ...nameEntry, id: request.result as number };
         setNames(prev => [...prev, newEntry]);
         
