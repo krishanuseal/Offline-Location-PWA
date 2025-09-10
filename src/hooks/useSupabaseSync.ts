@@ -84,7 +84,7 @@ export function useSupabaseSync() {
       const { data, error } = await supabase
         .from('onboarding_records')
         .select('*')
-        .order('timestamp', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (error) {
         console.error('Failed to fetch records from Supabase:', error);

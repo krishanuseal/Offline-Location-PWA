@@ -12,7 +12,7 @@ import { registerServiceWorker, requestNotificationPermission } from './utils/pw
 function App() {
   const { t } = useTranslation();
   const networkInfo = useNetworkStatus();
-  const { names, addName, syncPendingData, deleteRecord } = useIndexedDB();
+  const { names, isLoading, addName, syncPendingData, deleteRecord } = useIndexedDB();
 
   // Track sync state to prevent infinite loops
   const [lastSyncTime, setLastSyncTime] = React.useState(0);
@@ -43,6 +43,19 @@ function App() {
   };
   // Optimize rendering for slow connections
   const isSlow = isSlowConnection(networkInfo);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          </div>
+          <p className="text-gray-600">{t('app.loading') || 'Loading...'}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen transition-all duration-500 ${
