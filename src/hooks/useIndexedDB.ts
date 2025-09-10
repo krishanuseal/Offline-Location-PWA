@@ -21,8 +21,12 @@ export function useIndexedDB() {
   const { syncRecordToSupabase, migrateLocalRecords, fetchAllRecords } = useSupabaseSync();
 
   // Memoize the syncPendingData function to prevent recreating it on every render
-  const syncPendingData = useCallback(async () => {
+  const syncPendingData = useCallback(async (force = false) => {
     if (!db) return;
+
+    // Prevent multiple simultaneous sync operations
+    if (syncPendingData._syncing && !force) return;
+    syncPendingData._syncing = true;
 
     try {
       // Get pending items
@@ -68,11 +72,19 @@ export function useIndexedDB() {
       
       // Reload names to reflect sync status
       if (db) {
-        await loadNames(db);
+        const transaction = db.transaction(['names'], 'readonly');
+        const store = transaction.objectStore('names');
+        
+        const request = store.getAll();
+        request.onsuccess = () => {
+          setNames(request.result);
+        };
       }
       
     } catch (error) {
       console.error('Failed to sync pending data:', error);
+    } finally {
+      syncPendingData._syncing = false;
     }
   }, [db]);
 

@@ -14,6 +14,9 @@ function App() {
   const networkInfo = useNetworkStatus();
   const { names, addName, syncPendingData, deleteRecord } = useIndexedDB();
 
+  // Track sync state to prevent infinite loops
+  const [lastSyncTime, setLastSyncTime] = React.useState(0);
+
   useEffect(() => {
     // Register service worker and request permissions
     registerServiceWorker();
@@ -21,11 +24,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // Sync pending data when coming back online, but avoid infinite loops
-    if (networkInfo.isOnline && names.some(name => !name.synced)) {
-      syncPendingData();
+    // Only sync when coming back online and there are unsynced records
+    const unsyncedCount = names.filter(name => !name.synced).length;
+    const now = Date.now();
+    
+    if (networkInfo.isOnline && unsyncedCount > 0 && (now - lastSyncTime) > 5000) {
+      setLastSyncTime(now);
+      syncPendingData(true);
     }
-  }, [networkInfo.isOnline, names.length]); // Only sync when online status changes or new records added
+  }, [networkInfo.isOnline, names.length, syncPendingData, lastSyncTime]);
 
   const handleNameSubmit = async (name: string, location?: { latitude: number; longitude: number; accuracy: number }) => {
     await addName(name, location, networkInfo.isOnline);
