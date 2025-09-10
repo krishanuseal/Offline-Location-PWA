@@ -157,9 +157,67 @@ export function useIndexedDB() {
     }
   };
 
+  const deleteRecord = async (id: number): Promise<void> => {
+    if (!db) return;
+
+    try {
+      // Find the record to get its details for Supabase deletion
+      const record = names.find(name => name.id === id);
+      
+      // Delete from IndexedDB
+      const transaction = db.transaction(['names'], 'readwrite');
+      const store = transaction.objectStore('names');
+      const request = store.delete(id);
+      
+      request.onsuccess = async () => {
+        // Update local state
+        setNames(prev => prev.filter(name => name.id !== id));
+        
+        // If the record was synced, also delete from Supabase
+        if (record?.synced) {
+          try {
+            // Note: This requires the record to have been synced with a server ID
+            // For now, we'll just log this - in a full implementation, you'd need
+            // to track the server ID when syncing
+            console.log('Record deleted locally. Server cleanup may be needed for:', record);
+          } catch (error) {
+            console.error('Failed to delete from server:', error);
+          }
+        }
+        
+        // Also remove from pending sync if it exists there
+        try {
+          const pendingTransaction = db.transaction(['pendingSync'], 'readwrite');
+          const pendingStore = pendingTransaction.objectStore('pendingSync');
+          const pendingRequest = pendingStore.getAll();
+          
+          pendingRequest.onsuccess = () => {
+            const pendingItems = pendingRequest.result;
+            const itemToDelete = pendingItems.find(item => 
+              item.data.timestamp === record?.timestamp && 
+              item.data.name === record?.name
+            );
+            
+            if (itemToDelete) {
+              pendingStore.delete(itemToDelete.id);
+            }
+          };
+        } catch (error) {
+          console.error('Failed to clean up pending sync:', error);
+        }
+      };
+      
+      request.onerror = () => {
+        console.error('Failed to delete record:', request.error);
+      };
+    } catch (error) {
+      console.error('Failed to delete record:', error);
+    }
+  };
   return {
     names,
     addName,
-    syncPendingData
+    syncPendingData,
+    deleteRecord
   };
 }

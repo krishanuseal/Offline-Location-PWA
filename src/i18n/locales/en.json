@@ -38,7 +38,9 @@
     "noRecords": "No onboarding records yet",
     "synced": "Synced",
     "pending": "Pending",
-    "locationUnavailable": "Location not available"
+    "locationUnavailable": "Location not available",
+    "deleteRecord": "Delete record",
+    "confirmDelete": "Are you sure you want to delete the record for '{{name}}'? This action cannot be undone."
   },
   "language": {
     "switch": "Switch Language",

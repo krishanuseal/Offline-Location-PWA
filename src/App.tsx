@@ -31,6 +31,9 @@ function App() {
     await addName(name, location, networkInfo.isOnline);
   };
 
+  const handleDeleteRecord = async (id: number) => {
+    await deleteRecord(id);
+  };
   // Optimize rendering for slow connections
   const isSlow = isSlowConnection(networkInfo);
 
@@ -66,7 +69,7 @@ function App() {
           
           {names.length > 0 && (
             <div className="border-t border-gray-200 p-6">
-              <NamesList names={names} />
+              <NamesList names={names} onDeleteRecord={handleDeleteRecord} />
             </div>
           )}
         </div>

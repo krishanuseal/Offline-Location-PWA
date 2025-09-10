@@ -1,13 +1,14 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Clock, CheckCircle, Upload, User, MapPin } from 'lucide-react';
+import { Clock, CheckCircle, Upload, User, MapPin, Trash2 } from 'lucide-react';
 import { NameEntry } from '../hooks/useIndexedDB';
 
 interface NamesListProps {
   names: NameEntry[];
+  onDeleteRecord: (id: number) => void;
 }
 
-export function NamesList({ names }: NamesListProps) {
+export function NamesList({ names, onDeleteRecord }: NamesListProps) {
   const { t } = useTranslation();
   
   const openLocationInMaps = (latitude: number, longitude: number) => {
@@ -75,6 +76,12 @@ export function NamesList({ names }: NamesListProps) {
     }
   };
   
+  const handleDelete = (id: number, name: string) => {
+    if (window.confirm(t('records.confirmDelete', { name }))) {
+      onDeleteRecord(id);
+    }
+  };
+  
   if (names.length === 0) {
     return (
       <div className="text-center py-8 text-gray-500">
@@ -102,7 +109,7 @@ export function NamesList({ names }: NamesListProps) {
               <div className="flex-1 ml-3">
                 <p className="font-medium text-gray-900 text-lg" dir="auto">{entry.name}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 {entry.synced ? (
                   <div className="flex items-center gap-1 text-green-600">
                     <CheckCircle size={16} />
@@ -114,6 +121,14 @@ export function NamesList({ names }: NamesListProps) {
                     <span className="text-xs">{t('records.pending')}</span>
                   </div>
                 )}
+                <button
+                  onClick={() => handleDelete(entry.id!, entry.name)}
+                  className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors duration-150"
+                  title={t('records.deleteRecord')}
+                  type="button"
+                >
+                  <Trash2 size={16} />
+                </button>
               </div>
             </div>
             

@@ -38,7 +38,9 @@
     "noRecords": "अभी तक कोई ऑनबोर्डिंग रिकॉर्ड नहीं",
     "synced": "सिंक हो गया",
     "pending": "लंबित",
-    "locationUnavailable": "स्थान उपलब्ध नहीं"
+    "locationUnavailable": "स्थान उपलब्ध नहीं",
+    "deleteRecord": "रिकॉर्ड हटाएं",
+    "confirmDelete": "क्या आप वाकई '{{name}}' का रिकॉर्ड हटाना चाहते हैं? यह क्रिया पूर्ववत नहीं की जा सकती।"
   },
   "language": {
     "switch": "भाषा बदलें",
