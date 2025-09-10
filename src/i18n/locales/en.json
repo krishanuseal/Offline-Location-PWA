@@ -1,0 +1,52 @@
+{
+  "app": {
+    "title": "Digital Onboarding",
+    "subtitle": "Complete onboarding with location tracking",
+    "footer": "Secure onboarding • Works offline • Auto-sync when online"
+  },
+  "form": {
+    "nameLabel": "Your Name",
+    "namePlaceholder": "Enter your name",
+    "submitButton": "Complete Onboarding",
+    "submitButtonOffline": "Complete Onboarding (Offline)",
+    "submitButtonSlow": "Complete Onboarding (Slow Connection)",
+    "saving": "Saving...",
+    "saved": "Saved Successfully!",
+    "offlineMessage": "You're offline. Your onboarding data will be saved locally and synced when you're back online.",
+    "slowConnectionMessage": "Slow connection detected. The app is optimized for your current network conditions."
+  },
+  "location": {
+    "status": "Location Status",
+    "getting": "Getting location...",
+    "captured": "Location captured",
+    "willCapture": "Location will be captured on submit",
+    "coordinates": "Lat: {{lat}}, Lng: {{lng}}"
+  },
+  "session": {
+    "current": "Current Session"
+  },
+  "network": {
+    "offline": "Offline",
+    "online": "Online ({{type}})",
+    "slow": "Slow ({{type}})",
+    "dataSaver": "Data Saver"
+  },
+  "records": {
+    "title": "Onboarding Records",
+    "noRecords": "No onboarding records yet",
+    "synced": "Synced",
+    "pending": "Pending",
+    "locationUnavailable": "Location not available"
+  },
+  "language": {
+    "switch": "Switch Language",
+    "english": "English",
+    "hindi": "हिंदी"
+  },
+  "notifications": {
+    "dataSynced": "Data Synced",
+    "syncSuccess": "{{name}}'s onboarding data has been synced",
+    "appUpdated": "App Updated",
+    "updateAvailable": "A new version is available. Refresh to update."
+  }
+}
