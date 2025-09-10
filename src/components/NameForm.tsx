@@ -18,13 +18,18 @@ export function NameForm({ onSubmit, networkInfo }: NameFormProps) {
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
   const isSlow = isSlowConnection(networkInfo);
 
-  // Update current time every second
+  // Update current time every minute instead of every second to reduce CPU usage
   React.useEffect(() => {
     const timer = setInterval(() => {
       setCurrentDateTime(new Date());
-    }, 1000);
+    }, 60000); // Update every minute instead of every second
+    
+    // Update immediately on mount
+    setCurrentDateTime(new Date());
+    
     return () => clearInterval(timer);
   }, []);
+  
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;

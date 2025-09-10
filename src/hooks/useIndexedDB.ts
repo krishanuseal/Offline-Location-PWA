@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSupabaseSync } from './useSupabaseSync';
 
 export interface NameEntry {
   id?: number;
@@ -16,6 +17,8 @@ export interface NameEntry {
 export function useIndexedDB() {
   const [db, setDb] = useState<IDBDatabase | null>(null);
   const [names, setNames] = useState<NameEntry[]>([]);
+  const { syncRecordToSupabase, migrateLocalRecords } = useSupabaseSync();
+  const [migrationCompleted, setMigrationCompleted] = useState(false);
 
   useEffect(() => {
     const initDB = async () => {
