@@ -12,7 +12,7 @@ import { registerServiceWorker, requestNotificationPermission } from './utils/pw
 function App() {
   const { t } = useTranslation();
   const networkInfo = useNetworkStatus();
-  const { names, addName, syncPendingData } = useIndexedDB();
+  const { names, addName, syncPendingData, deleteRecord } = useIndexedDB();
 
   useEffect(() => {
     // Register service worker and request permissions
