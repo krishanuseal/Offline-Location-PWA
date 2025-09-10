@@ -150,6 +150,12 @@ export function useIndexedDB() {
     const nameEntry: NameEntry = {
       name: name.trim(),
       language: detectLanguage(name.trim()),
+      location,
+      timestamp: Date.now(),
+      synced: false
+    };
+
+    try {
       if (isOnline) {
         // When online, sync directly to Supabase first
         const success = await syncRecordToSupabase(nameEntry);
