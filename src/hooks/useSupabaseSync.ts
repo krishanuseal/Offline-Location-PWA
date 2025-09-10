@@ -42,6 +42,7 @@ export function useSupabaseSync() {
         return false;
       }
 
+      console.log('Successfully synced record to Supabase:', record.name);
       return true;
     } catch (error) {
       console.error('Failed to sync record:', error);

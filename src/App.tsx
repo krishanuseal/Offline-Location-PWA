@@ -12,27 +12,23 @@ import { registerServiceWorker, requestNotificationPermission } from './utils/pw
 function App() {
   const { t } = useTranslation();
   const networkInfo = useNetworkStatus();
-  const { names, isLoading, addName, syncPendingData, deleteRecord } = useIndexedDB();
-
-  // Track sync state to prevent infinite loops
-  const [lastSyncTime, setLastSyncTime] = React.useState(0);
+  const { names, isLoading, isSyncing, addName, syncPendingData, deleteRecord } = useIndexedDB();
 
   useEffect(() => {
-    // Register service worker and request permissions
     registerServiceWorker();
     requestNotificationPermission();
   }, []);
 
   useEffect(() => {
-    // Only sync when coming back online and there are unsynced records
-    const unsyncedCount = names.filter(name => !name.synced).length;
-    const now = Date.now();
-    
-    if (networkInfo.isOnline && unsyncedCount > 0 && (now - lastSyncTime) > 5000) {
-      setLastSyncTime(now);
-      syncPendingData(true);
+    // Sync pending data when coming online
+    if (networkInfo.isOnline && !isSyncing) {
+      const timer = setTimeout(() => {
+        syncPendingData();
+      }, 1000); // Small delay to avoid rapid firing
+      
+      return () => clearTimeout(timer);
     }
-  }, [networkInfo.isOnline, names.length, syncPendingData, lastSyncTime]);
+  }, [networkInfo.isOnline, isSyncing, syncPendingData]);
 
   const handleNameSubmit = async (name: string, location?: { latitude: number; longitude: number; accuracy: number }) => {
     await addName(name, location, networkInfo.isOnline);
