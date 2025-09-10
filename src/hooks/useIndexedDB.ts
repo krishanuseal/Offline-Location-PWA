@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useSupabaseSync } from './useSupabaseSync';
-import { supabase } from '../lib/supabase';
+import { supabase, OnboardingRecord } from '../lib/supabase';
 
 export interface NameEntry {
   id?: number;
@@ -18,25 +17,16 @@ export interface NameEntry {
 export function useIndexedDB() {
   const [db, setDb] = useState<IDBDatabase | null>(null);
   const [names, setNames] = useState<NameEntry[]>([]);
-  const { syncRecordToSupabase, fetchAllRecords } = useSupabaseSync();
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [lastSyncTime, setLastSyncTime] = useState(0);
 
-
+  // Initialize database
   useEffect(() => {
     const initDB = async () => {
       try {
-        setIsLoading(true);
         const database = await openDB();
         setDb(database);
-        
-        // Load from Supabase when online, otherwise load local data
-        if (navigator.onLine) {
-          await loadFromSupabaseOnly(database);
-        } else {
-          await loadNames(database);
-        }
+        await loadNames(database);
       } catch (error) {
         console.error('Failed to initialize database:', error);
       } finally {
@@ -45,54 +35,19 @@ export function useIndexedDB() {
     };
 
     initDB();
-  }, []); // Empty dependency array - only run once on mount
+  }, []);
 
-  const loadFromSupabaseOnly = async (database: IDBDatabase) => {
-    try {
-      const supabaseRecords = await fetchAllRecords();
-      
-      // Convert and sort by timestamp (most recent first)
-      const convertedRecords: NameEntry[] = supabaseRecords.map((record, index) => ({
-        id: index + 1, // Use sequential IDs for display
-        name: record.name,
-        language: record.language || 'en',
-        location: record.latitude && record.longitude ? {
-          latitude: record.latitude,
-          longitude: record.longitude,
-          accuracy: record.location_accuracy || 0
-        } : undefined,
-        timestamp: new Date(record.timestamp).getTime(),
-        synced: true
-      })).sort((a, b) => b.timestamp - a.timestamp);
-      
-      // Clear local storage and replace with Supabase data
-      const transaction = database.transaction(['names'], 'readwrite');
-      const store = transaction.objectStore('names');
-      
-      // Clear existing data
-      await new Promise<void>((resolve, reject) => {
-        const clearRequest = store.clear();
-        clearRequest.onsuccess = () => resolve();
-        clearRequest.onerror = () => reject(clearRequest.error);
-      });
-      
-      // Add Supabase records
-      for (const record of convertedRecords) {
-        await new Promise<void>((resolve, reject) => {
-          const addRequest = store.add(record);
-          addRequest.onsuccess = () => resolve();
-          addRequest.onerror = () => reject(addRequest.error);
-        });
+  // Sync when network comes back
+  useEffect(() => {
+    const handleOnline = () => {
+      if (db && !isSyncing) {
+        syncPendingData();
       }
-      
-      // Update state with Supabase data
-      setNames(convertedRecords);
-      
-    } catch (error) {
-      console.error('Failed to load from Supabase:', error);
-      await loadNames(database);
-    }
-  };
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [db, isSyncing]);
 
   const openDB = (): Promise<IDBDatabase> => {
     return new Promise((resolve, reject) => {
@@ -107,10 +62,6 @@ export function useIndexedDB() {
         if (!db.objectStoreNames.contains('names')) {
           db.createObjectStore('names', { keyPath: 'id', autoIncrement: true });
         }
-        
-        if (!db.objectStoreNames.contains('pendingSync')) {
-          db.createObjectStore('pendingSync', { keyPath: 'id', autoIncrement: true });
-        }
       };
     });
   };
@@ -124,22 +75,20 @@ export function useIndexedDB() {
         const request = store.getAll();
         
         request.onsuccess = () => {
-          // Sort by timestamp (most recent first)
+          // Sort by timestamp DESC (most recent first)
           const sortedNames = request.result.sort((a, b) => b.timestamp - a.timestamp);
           setNames(sortedNames);
           resolve();
         };
         
-        request.onerror = () => {
-          reject(request.error);
-        };
+        request.onerror = () => reject(request.error);
       });
     } catch (error) {
       console.error('Failed to load names:', error);
     }
   };
 
-  const addName = async (name: string, location: { latitude: number; longitude: number; accuracy: number } | undefined, isOnline: boolean): Promise<void> => {
+  const addName = async (name: string, location?: { latitude: number; longitude: number; accuracy: number }): Promise<void> => {
     if (!db) return;
 
     const detectLanguage = (text: string): string => {
@@ -156,96 +105,101 @@ export function useIndexedDB() {
     };
 
     try {
-      if (isOnline) {
-        // When online, sync directly to Supabase first
-        const success = await syncRecordToSupabase(nameEntry);
-        if (success) {
-          // Reload all data from Supabase to ensure consistency
-          await loadFromSupabaseOnly(db);
-        } else {
-          // If sync fails, store locally
-          await storeLocally(nameEntry);
-        }
-      } else {
-        // When offline, store locally
-        await storeLocally(nameEntry);
-      }
+      // Always save to local IndexedDB first
+      const transaction = db.transaction(['names'], 'readwrite');
+      const store = transaction.objectStore('names');
+      
+      return new Promise<void>((resolve, reject) => {
+        const request = store.add(nameEntry);
+        
+        request.onsuccess = () => {
+          const newEntry = { ...nameEntry, id: request.result as number };
+          // Add to beginning of array (most recent first)
+          setNames(prev => [newEntry, ...prev]);
+          
+          // Try to sync immediately if online
+          if (navigator.onLine && !isSyncing) {
+            syncSingleRecord(newEntry);
+          }
+          
+          resolve();
+        };
+        
+        request.onerror = () => reject(request.error);
+      });
     } catch (error) {
       console.error('Failed to add name:', error);
     }
   };
 
-  const storeLocally = async (nameEntry: NameEntry) => {
-    if (!db) return;
+  const syncSingleRecord = async (record: NameEntry) => {
+    if (!navigator.onLine || !db) return;
 
     try {
-      const transaction = db.transaction(['names'], 'readwrite');
-      const store = transaction.objectStore('names');
-      const request = store.add(nameEntry);
-      
-      request.onsuccess = () => {
-        const newEntry = { ...nameEntry, id: request.result as number };
-        setNames(prev => [newEntry, ...prev.filter(n => n.id !== newEntry.id)].sort((a, b) => b.timestamp - a.timestamp));
-        
-        // Add to pending sync
-        const syncTransaction = db.transaction(['pendingSync'], 'readwrite');
-        const syncStore = syncTransaction.objectStore('pendingSync');
-        syncStore.add({
-          data: newEntry,
-          timestamp: Date.now()
-        });
+      const supabaseRecord: Omit<OnboardingRecord, 'id' | 'created_at' | 'updated_at'> = {
+        name: record.name,
+        language: record.language || 'en',
+        latitude: record.location?.latitude,
+        longitude: record.location?.longitude,
+        location_accuracy: record.location?.accuracy,
+        timestamp: new Date(record.timestamp).toISOString(),
+        synced: true
       };
+
+      const { error } = await supabase
+        .from('onboarding_records')
+        .insert([supabaseRecord]);
+
+      if (!error && record.id) {
+        // Mark as synced in local database
+        const transaction = db.transaction(['names'], 'readwrite');
+        const store = transaction.objectStore('names');
+        const updatedRecord = { ...record, synced: true };
+        
+        store.put(updatedRecord);
+        
+        // Update state
+        setNames(prev => prev.map(item => 
+          item.id === record.id ? updatedRecord : item
+        ));
+      }
     } catch (error) {
-      console.error('Failed to store locally:', error);
+      console.error('Failed to sync record:', error);
     }
   };
 
   const syncPendingData = useCallback(async () => {
     if (!db || isSyncing || !navigator.onLine) return;
     
-    const now = Date.now();
-    if (now - lastSyncTime < 5000) return; // Throttle to once every 5 seconds
-    
     setIsSyncing(true);
-    setLastSyncTime(now);
 
     try {
-      // Get pending items
-      const pendingItems = await new Promise<any[]>((resolve, reject) => {
-        const transaction = db.transaction(['pendingSync'], 'readonly');
-        const store = transaction.objectStore('pendingSync');
+      // Get all unsynced records
+      const transaction = db.transaction(['names'], 'readonly');
+      const store = transaction.objectStore('names');
+      
+      const unsyncedRecords = await new Promise<NameEntry[]>((resolve, reject) => {
         const request = store.getAll();
-        
-        request.onsuccess = () => resolve(request.result);
+        request.onsuccess = () => {
+          const unsynced = request.result.filter(record => !record.synced);
+          resolve(unsynced);
+        };
         request.onerror = () => reject(request.error);
       });
 
-      if (pendingItems.length === 0) return;
-
-      // Sync each pending item
-      for (const item of pendingItems) {
-        try {
-          const success = await syncRecordToSupabase(item.data);
-          if (success) {
-            // Remove from pending sync
-            const syncTransaction = db.transaction(['pendingSync'], 'readwrite');
-            const syncStore = syncTransaction.objectStore('pendingSync');
-            syncStore.delete(item.id);
-          }
-        } catch (error) {
-          console.error('Failed to sync item:', item.id, error);
-        }
+      // Sync each unsynced record
+      for (const record of unsyncedRecords) {
+        await syncSingleRecord(record);
+        // Small delay to prevent overwhelming the server
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
-      
-      // Reload from Supabase to get latest data
-      await loadFromSupabaseOnly(db);
-      
+
     } catch (error) {
       console.error('Failed to sync pending data:', error);
     } finally {
       setIsSyncing(false);
     }
-  }, [db, isSyncing, lastSyncTime, syncRecordToSupabase, fetchAllRecords]);
+  }, [db, isSyncing]);
 
   const deleteRecord = async (id: number): Promise<void> => {
     if (!db) return;
@@ -253,11 +207,17 @@ export function useIndexedDB() {
     try {
       const transaction = db.transaction(['names'], 'readwrite');
       const store = transaction.objectStore('names');
-      const deleteRequest = store.delete(id);
       
-      deleteRequest.onsuccess = () => {
-        setNames(prev => prev.filter(name => name.id !== id));
-      };
+      return new Promise<void>((resolve, reject) => {
+        const request = store.delete(id);
+        
+        request.onsuccess = () => {
+          setNames(prev => prev.filter(name => name.id !== id));
+          resolve();
+        };
+        
+        request.onerror = () => reject(request.error);
+      });
     } catch (error) {
       console.error('Failed to delete record:', error);
     }

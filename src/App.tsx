@@ -8,7 +8,6 @@ import { TranslationManager } from './components/TranslationManager';
 import { useNetworkStatus, isSlowConnection } from './hooks/useNetworkStatus';
 import { useIndexedDB } from './hooks/useIndexedDB';
 import { registerServiceWorker, requestNotificationPermission } from './utils/pwaUtils';
-
 function App() {
   const { t } = useTranslation();
   const networkInfo = useNetworkStatus();
@@ -19,19 +18,8 @@ function App() {
     requestNotificationPermission();
   }, []);
 
-  useEffect(() => {
-    // Sync pending data when coming online
-    if (networkInfo.isOnline && !isSyncing) {
-      const timer = setTimeout(() => {
-        syncPendingData();
-      }, 1000); // Small delay to avoid rapid firing
-      
-      return () => clearTimeout(timer);
-    }
-  }, [networkInfo.isOnline, isSyncing, syncPendingData]);
-
   const handleNameSubmit = async (name: string, location?: { latitude: number; longitude: number; accuracy: number }) => {
-    await addName(name, location, networkInfo.isOnline);
+    await addName(name, location);
   };
 
   const handleDeleteRecord = async (id: number) => {
