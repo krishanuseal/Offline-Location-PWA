@@ -142,12 +142,11 @@ export function NamesList({ names, onDeleteRecord }: NamesListProps) {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => openLocationInMaps(entry.location!.latitude, entry.location!.longitude)}
-                    className="flex items-center gap-2 text-blue-600 hover:text-blue-800 active:text-blue-900 transition-colors duration-150 cursor-pointer p-1 rounded hover:bg-blue-50 active:bg-blue-100"
+                    className="text-blue-600 hover:text-blue-800 active:text-blue-900 transition-colors duration-150 cursor-pointer p-1 rounded hover:bg-blue-50 active:bg-blue-100"
                     title={t('location.openInMaps')}
                     type="button"
                   >
                     <MapPin size={14} />
-                    <span className="text-xs font-medium">{t('location.viewMap')}</span>
                   </button>
                   <span className="text-xs">{t('location.coordinates', { 
                     lat: entry.location.latitude.toFixed(6), 
