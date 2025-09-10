@@ -21,11 +21,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // Sync pending data when coming back online
-    if (networkInfo.isOnline) {
+    // Sync pending data when coming back online, but avoid infinite loops
+    if (networkInfo.isOnline && names.some(name => !name.synced)) {
       syncPendingData();
     }
-  }, [networkInfo.isOnline]); // Remove syncPendingData from dependencies
+  }, [networkInfo.isOnline, names.length]); // Only sync when online status changes or new records added
 
   const handleNameSubmit = async (name: string, location?: { latitude: number; longitude: number; accuracy: number }) => {
     await addName(name, location, networkInfo.isOnline);
