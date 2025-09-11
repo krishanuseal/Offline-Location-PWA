@@ -143,8 +143,8 @@ export function useIndexedDB() {
 
       console.log('Local records with Supabase IDs:', localRecordMap.size);
 
-      // Process remote records
-      const allRecords: NameEntry[] = [...localRecords];
+      // Process remote records and add missing ones to IndexedDB
+      let newRecordsAdded = 0;
       
       for (const remoteRecord of remoteRecords) {
         console.log('Processing remote record:', remoteRecord.id, remoteRecord.name);
@@ -171,23 +171,34 @@ export function useIndexedDB() {
 
         console.log('Adding new remote record to local DB:', localRecord.name);
 
-        // Add to IndexedDB
-        const addedRecord = await new Promise<NameEntry>((resolve, reject) => {
-          const addRequest = store.add(localRecord);
-          addRequest.onsuccess = () => {
-            const recordWithId = { ...localRecord, id: addRequest.result as number };
-            resolve(recordWithId);
-          };
-          addRequest.onerror = () => reject(addRequest.error);
-        });
-        
-        allRecords.push(addedRecord);
+        // Add to IndexedDB using a new transaction for each record
+        try {
+          const newTransaction = database.transaction(['names'], 'readwrite');
+          const newStore = newTransaction.objectStore('names');
+          
+          await new Promise<void>((resolve, reject) => {
+            const addRequest = newStore.add(localRecord);
+            addRequest.onsuccess = () => {
+              console.log('Successfully added remote record to IndexedDB:', localRecord.name);
+              newRecordsAdded++;
+              resolve();
+            };
+            addRequest.onerror = () => {
+              console.error('Failed to add remote record to IndexedDB:', addRequest.error);
+              reject(addRequest.error);
+            };
+          });
+        } catch (error) {
+          console.error('Error adding remote record:', error);
+        }
       }
 
-      // Update state with all records (local + remote) sorted by timestamp
-      const sortedRecords = allRecords.sort((a, b) => b.timestamp - a.timestamp);
-      console.log('Final sorted records count:', sortedRecords.length);
-      setNames(sortedRecords);
+      console.log('New records added to IndexedDB:', newRecordsAdded);
+      
+      // Reload all records from IndexedDB to update the state
+      if (newRecordsAdded > 0) {
+        await loadLocalNames(database);
+      }
 
     } catch (error) {
       console.error('Failed to fetch and merge remote records:', error);
