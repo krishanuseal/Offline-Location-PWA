@@ -102,6 +102,7 @@ export function useIndexedDB() {
 
     try {
       setIsSyncing(true);
+      console.log('Fetching remote records from Supabase...');
       
       // Fetch all records from Supabase
       const { data: remoteRecords, error } = await supabase
@@ -114,7 +115,10 @@ export function useIndexedDB() {
         return;
       }
 
+      console.log('Remote records fetched:', remoteRecords?.length || 0);
+      
       if (!remoteRecords || remoteRecords.length === 0) {
+        console.log('No remote records found');
         return;
       }
 
@@ -127,6 +131,8 @@ export function useIndexedDB() {
         request.onerror = () => reject(request.error);
       });
 
+      console.log('Local records found:', localRecords.length);
+
       // Create a map of existing local records by supabaseId
       const localRecordMap = new Map<string, NameEntry>();
       localRecords.forEach(record => {
@@ -135,12 +141,17 @@ export function useIndexedDB() {
         }
       });
 
+      console.log('Local records with Supabase IDs:', localRecordMap.size);
+
       // Process remote records
-      const newRecords: NameEntry[] = [];
+      const allRecords: NameEntry[] = [...localRecords];
       
       for (const remoteRecord of remoteRecords) {
+        console.log('Processing remote record:', remoteRecord.id, remoteRecord.name);
+        
         // Skip if we already have this record locally
         if (localRecordMap.has(remoteRecord.id)) {
+          console.log('Skipping duplicate record:', remoteRecord.id);
           continue;
         }
 
@@ -158,23 +169,25 @@ export function useIndexedDB() {
           synced: true
         };
 
+        console.log('Adding new remote record to local DB:', localRecord.name);
+
         // Add to IndexedDB
-        await new Promise<void>((resolve, reject) => {
+        const addedRecord = await new Promise<NameEntry>((resolve, reject) => {
           const addRequest = store.add(localRecord);
           addRequest.onsuccess = () => {
-            newRecords.push({ ...localRecord, id: addRequest.result as number });
-            resolve();
+            const recordWithId = { ...localRecord, id: addRequest.result as number };
+            resolve(recordWithId);
           };
           addRequest.onerror = () => reject(addRequest.error);
         });
+        
+        allRecords.push(addedRecord);
       }
 
-      // Update state with merged records (local + new remote)
-      if (newRecords.length > 0) {
-        const allRecords = [...newRecords, ...localRecords];
-        const sortedRecords = allRecords.sort((a, b) => b.timestamp - a.timestamp);
-        setNames(sortedRecords);
-      }
+      // Update state with all records (local + remote) sorted by timestamp
+      const sortedRecords = allRecords.sort((a, b) => b.timestamp - a.timestamp);
+      console.log('Final sorted records count:', sortedRecords.length);
+      setNames(sortedRecords);
 
     } catch (error) {
       console.error('Failed to fetch and merge remote records:', error);
