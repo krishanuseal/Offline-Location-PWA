@@ -136,6 +136,11 @@ export function NamesList({ names, onDeleteRecord }: NamesListProps) {
               <div className="flex items-center gap-2">
                 <Clock size={14} />
                 <span>{new Date(entry.timestamp).toLocaleString()}</span>
+                {entry.supabaseId && (
+                  <span className="text-xs text-blue-500 bg-blue-50 px-2 py-1 rounded">
+                    ID: {entry.supabaseId.slice(0, 8)}...
+                  </span>
+                )}
               </div>
               
               {entry.location ? (
