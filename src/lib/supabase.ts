@@ -32,16 +32,6 @@ supabase
     }
   });
 
-// Debug: Check what tables are available
-console.log('Checking available tables...');
-supabase.rpc('get_schema_tables').then(({ data, error }) => {
-  if (error) {
-    console.log('Could not fetch table list (this is normal):', error.message);
-  } else {
-    console.log('Available tables:', data);
-  }
-});
-
 // Debug: Try to fetch a single record to test RLS
 supabase
   .from('onboarding_records')
