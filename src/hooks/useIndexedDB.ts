@@ -3,6 +3,7 @@ import { supabase, OnboardingRecord } from '../lib/supabase';
 
 export interface NameEntry {
   id?: number;
+  supabaseId?: string;
   name: string;
   language?: string;
   location?: {
@@ -26,7 +27,12 @@ export function useIndexedDB() {
       try {
         const database = await openDB();
         setDb(database);
-        await loadNames(database);
+        await loadLocalNames(database);
+        
+        // If online, fetch remote records and sync
+        if (navigator.onLine) {
+          await fetchAndMergeRemoteRecords(database);
+        }
       } catch (error) {
         console.error('Failed to initialize database:', error);
       } finally {
@@ -39,9 +45,10 @@ export function useIndexedDB() {
 
   // Sync when network comes back
   useEffect(() => {
-    const handleOnline = () => {
+    const handleOnline = async () => {
       if (db && !isSyncing) {
-        syncPendingData();
+        await fetchAndMergeRemoteRecords(db);
+        await syncPendingData();
       }
     };
 
@@ -51,7 +58,7 @@ export function useIndexedDB() {
 
   const openDB = (): Promise<IDBDatabase> => {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('NameCollectorDB', 1);
+      const request = indexedDB.open('NameCollectorDB', 2);
       
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
@@ -60,13 +67,15 @@ export function useIndexedDB() {
         const db = (event.target as IDBOpenDBRequest).result;
         
         if (!db.objectStoreNames.contains('names')) {
-          db.createObjectStore('names', { keyPath: 'id', autoIncrement: true });
+          const store = db.createObjectStore('names', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('supabaseId', 'supabaseId', { unique: false });
+          store.createIndex('timestamp', 'timestamp', { unique: false });
         }
       };
     });
   };
 
-  const loadNames = async (database: IDBDatabase) => {
+  const loadLocalNames = async (database: IDBDatabase) => {
     try {
       const transaction = database.transaction(['names'], 'readonly');
       const store = transaction.objectStore('names');
@@ -84,7 +93,93 @@ export function useIndexedDB() {
         request.onerror = () => reject(request.error);
       });
     } catch (error) {
-      console.error('Failed to load names:', error);
+      console.error('Failed to load local names:', error);
+    }
+  };
+
+  const fetchAndMergeRemoteRecords = async (database: IDBDatabase) => {
+    if (!navigator.onLine) return;
+
+    try {
+      setIsSyncing(true);
+      
+      // Fetch all records from Supabase
+      const { data: remoteRecords, error } = await supabase
+        .from('onboarding_records')
+        .select('*')
+        .order('timestamp', { ascending: false });
+
+      if (error) {
+        console.error('Failed to fetch remote records:', error);
+        return;
+      }
+
+      if (!remoteRecords || remoteRecords.length === 0) {
+        return;
+      }
+
+      // Get existing local records
+      const transaction = database.transaction(['names'], 'readwrite');
+      const store = transaction.objectStore('names');
+      const localRecords = await new Promise<NameEntry[]>((resolve, reject) => {
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+      // Create a map of existing local records by supabaseId
+      const localRecordMap = new Map<string, NameEntry>();
+      localRecords.forEach(record => {
+        if (record.supabaseId) {
+          localRecordMap.set(record.supabaseId, record);
+        }
+      });
+
+      // Process remote records
+      const newRecords: NameEntry[] = [];
+      
+      for (const remoteRecord of remoteRecords) {
+        // Skip if we already have this record locally
+        if (localRecordMap.has(remoteRecord.id)) {
+          continue;
+        }
+
+        // Convert remote record to local format
+        const localRecord: NameEntry = {
+          supabaseId: remoteRecord.id,
+          name: remoteRecord.name,
+          language: remoteRecord.language || 'en',
+          location: remoteRecord.latitude && remoteRecord.longitude ? {
+            latitude: parseFloat(remoteRecord.latitude),
+            longitude: parseFloat(remoteRecord.longitude),
+            accuracy: parseFloat(remoteRecord.location_accuracy || '0')
+          } : undefined,
+          timestamp: new Date(remoteRecord.timestamp).getTime(),
+          synced: true
+        };
+
+        // Add to IndexedDB
+        await new Promise<void>((resolve, reject) => {
+          const addRequest = store.add(localRecord);
+          addRequest.onsuccess = () => {
+            newRecords.push({ ...localRecord, id: addRequest.result as number });
+            resolve();
+          };
+          addRequest.onerror = () => reject(addRequest.error);
+        });
+      }
+
+      // Update state with merged records (local + new remote)
+      if (newRecords.length > 0) {
+        const allRecords = [...newRecords, ...localRecords];
+        const sortedRecords = allRecords.sort((a, b) => b.timestamp - a.timestamp);
+        setNames(sortedRecords);
+      }
+
+    } catch (error) {
+      console.error('Failed to fetch and merge remote records:', error);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -109,31 +204,31 @@ export function useIndexedDB() {
       const transaction = db.transaction(['names'], 'readwrite');
       const store = transaction.objectStore('names');
       
-      return new Promise<void>((resolve, reject) => {
+      const newEntry = await new Promise<NameEntry>((resolve, reject) => {
         const request = store.add(nameEntry);
         
         request.onsuccess = () => {
-          const newEntry = { ...nameEntry, id: request.result as number };
-          // Add to beginning of array (most recent first)
-          setNames(prev => [newEntry, ...prev]);
-          
-          // Try to sync immediately if online
-          if (navigator.onLine && !isSyncing) {
-            syncSingleRecord(newEntry);
-          }
-          
-          resolve();
+          const entryWithId = { ...nameEntry, id: request.result as number };
+          resolve(entryWithId);
         };
         
         request.onerror = () => reject(request.error);
       });
+
+      // Add to beginning of array (most recent first)
+      setNames(prev => [newEntry, ...prev]);
+
+      // Try to sync immediately if online
+      if (navigator.onLine) {
+        await syncSingleRecord(newEntry);
+      }
     } catch (error) {
       console.error('Failed to add name:', error);
     }
   };
 
   const syncSingleRecord = async (record: NameEntry) => {
-    if (!navigator.onLine || !db) return;
+    if (!navigator.onLine || !db || record.synced) return;
 
     try {
       const supabaseRecord: Omit<OnboardingRecord, 'id' | 'created_at' | 'updated_at'> = {
@@ -146,15 +241,21 @@ export function useIndexedDB() {
         synced: true
       };
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('onboarding_records')
-        .insert([supabaseRecord]);
+        .insert([supabaseRecord])
+        .select()
+        .single();
 
-      if (!error && record.id) {
-        // Mark as synced in local database
+      if (!error && data && record.id) {
+        // Mark as synced in local database and store supabaseId
         const transaction = db.transaction(['names'], 'readwrite');
         const store = transaction.objectStore('names');
-        const updatedRecord = { ...record, synced: true };
+        const updatedRecord = { 
+          ...record, 
+          synced: true, 
+          supabaseId: data.id 
+        };
         
         store.put(updatedRecord);
         
