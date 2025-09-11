@@ -104,6 +104,10 @@ export function useIndexedDB() {
       setIsSyncing(true);
       console.log('Fetching remote records from Supabase...');
       
+      // Check if Supabase is properly configured
+      console.log('Supabase URL:', import.meta.env.VITE_SUPABASE_URL ? 'Set' : 'Not set');
+      console.log('Supabase Anon Key:', import.meta.env.VITE_SUPABASE_ANON_KEY ? 'Set' : 'Not set');
+      
       // Fetch all records from Supabase
       const { data: remoteRecords, error } = await supabase
         .from('onboarding_records')
@@ -111,11 +115,18 @@ export function useIndexedDB() {
         .order('timestamp', { ascending: false });
 
       if (error) {
-        console.error('Failed to fetch remote records:', error);
+        console.error('Supabase query error:', error);
+        console.error('Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
         return;
       }
 
       console.log('Remote records fetched:', remoteRecords?.length || 0);
+      console.log('Raw remote records:', remoteRecords);
       
       if (!remoteRecords || remoteRecords.length === 0) {
         console.log('No remote records found');
