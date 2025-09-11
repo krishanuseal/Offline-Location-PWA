@@ -122,6 +122,21 @@ export function useIndexedDB() {
           hint: error.hint,
           code: error.code
         });
+        
+        // Try alternative table names
+        console.log('Trying alternative table name: location_records');
+        const { data: locationRecords, error: locationError } = await supabase
+          .from('location_records')
+          .select('*')
+          .order('created_at', { ascending: false });
+          
+        if (!locationError && locationRecords) {
+          console.log('Found records in location_records table:', locationRecords.length);
+          console.log('Location records:', locationRecords);
+        } else {
+          console.error('location_records query failed:', locationError);
+        }
+        
         return;
       }
 

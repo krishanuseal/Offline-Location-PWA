@@ -32,6 +32,35 @@ supabase
     }
   });
 
+// Debug: Check what tables are available
+console.log('Checking available tables...');
+supabase.rpc('get_schema_tables').then(({ data, error }) => {
+  if (error) {
+    console.log('Could not fetch table list (this is normal):', error.message);
+  } else {
+    console.log('Available tables:', data);
+  }
+});
+
+// Debug: Try to fetch a single record to test RLS
+supabase
+  .from('onboarding_records')
+  .select('*')
+  .limit(1)
+  .then(({ data, error }) => {
+    if (error) {
+      console.error('Single record fetch failed:', error);
+      console.error('Error details:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
+    } else {
+      console.log('Single record fetch successful:', data);
+    }
+  });
+
 // Database types
 export interface OnboardingRecord {
   id?: string;
