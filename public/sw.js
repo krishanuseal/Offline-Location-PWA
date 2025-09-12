@@ -6,22 +6,11 @@ const DYNAMIC_CACHE = 'dynamic-v2';
 const CRITICAL_RESOURCES = [
   '/',
   '/index.html',
-  '/src/main.tsx',
-  '/src/App.tsx',
-  '/src/index.css',
   '/manifest.json'
 ];
 
 // Additional resources to cache opportunistically
-const OPTIONAL_RESOURCES = [
-  '/src/components/NameForm.tsx',
-  '/src/components/NamesList.tsx',
-  '/src/components/NetworkStatus.tsx',
-  '/src/hooks/useIndexedDB.ts',
-  '/src/hooks/useNetworkStatus.ts',
-  '/src/hooks/useGeolocation.ts',
-  '/src/utils/pwaUtils.ts'
-];
+const OPTIONAL_RESOURCES = [];
 
 // Install event - aggressively cache critical resources
 self.addEventListener('install', (event) => {
@@ -32,7 +21,9 @@ self.addEventListener('install', (event) => {
       // Cache critical resources first
       caches.open(STATIC_CACHE).then((cache) => {
         console.log('Caching critical resources...');
-        return cache.addAll(CRITICAL_RESOURCES);
+        return Promise.allSettled(
+          CRITICAL_RESOURCES.map(url => cache.add(url))
+        );
       }),
       // Cache optional resources (don't fail if some fail)
       caches.open(DYNAMIC_CACHE).then((cache) => {
@@ -95,17 +86,22 @@ async function handleFetch(request) {
   const url = new URL(request.url);
   
   try {
-    // Strategy 1: Cache First for critical resources (app shell)
-    if (CRITICAL_RESOURCES.some(resource => url.pathname === resource || url.pathname.endsWith(resource))) {
+    // Strategy 1: Network First for HTML files
+    if (url.pathname === '/' || url.pathname.endsWith('.html')) {
+      return await networkFirstWithTimeout(request, 3000);
+    }
+    
+    // Strategy 2: Cache First for static assets (JS, CSS)
+    if (url.pathname.startsWith('/assets/') || url.pathname.endsWith('.js') || url.pathname.endsWith('.css')) {
       return await cacheFirst(request);
     }
     
-    // Strategy 2: Network First with fast timeout for dynamic content
+    // Strategy 3: Network First with fast timeout for API calls
     if (url.pathname.startsWith('/api/') || url.pathname.includes('sync')) {
       return await networkFirstWithTimeout(request, 3000);
     }
     
-    // Strategy 3: Stale While Revalidate for other resources
+    // Strategy 4: Network First for everything else
     return await staleWhileRevalidate(request);
     
   } catch (error) {
