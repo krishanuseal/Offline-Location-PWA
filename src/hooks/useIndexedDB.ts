@@ -27,11 +27,15 @@ export function useIndexedDB() {
       try {
         const database = await openDB();
         setDb(database);
+        
+        // Always load local names first
         await loadLocalNames(database);
         
-        // If online, fetch remote records and sync
+        // Then fetch and merge remote records if online
         if (navigator.onLine) {
           await fetchAndMergeRemoteRecords(database);
+        } else {
+          console.log('Offline - showing local records only');
         }
       } catch (error) {
         console.error('Failed to initialize database:', error);
@@ -86,6 +90,7 @@ export function useIndexedDB() {
         request.onsuccess = () => {
           // Sort by timestamp DESC (most recent first)
           const sortedNames = request.result.sort((a, b) => b.timestamp - a.timestamp);
+          console.log('Loaded', sortedNames.length, 'records from IndexedDB');
           setNames(sortedNames);
           resolve();
         };
@@ -104,10 +109,6 @@ export function useIndexedDB() {
       setIsSyncing(true);
       console.log('Fetching remote records from Supabase...');
       
-      // Check if Supabase is properly configured
-      console.log('Supabase URL:', import.meta.env.VITE_SUPABASE_URL ? 'Set' : 'Not set');
-      console.log('Supabase Anon Key:', import.meta.env.VITE_SUPABASE_ANON_KEY ? 'Set' : 'Not set');
-      
       // Fetch all records from Supabase
       const { data: remoteRecords, error } = await supabase
         .from('onboarding_records')
@@ -116,32 +117,10 @@ export function useIndexedDB() {
 
       if (error) {
         console.error('Supabase query error:', error);
-        console.error('Error details:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code
-        });
-        
-        // Try alternative table names
-        console.log('Trying alternative table name: location_records');
-        const { data: locationRecords, error: locationError } = await supabase
-          .from('location_records')
-          .select('*')
-          .order('created_at', { ascending: false });
-          
-        if (!locationError && locationRecords) {
-          console.log('Found records in location_records table:', locationRecords.length);
-          console.log('Location records:', locationRecords);
-        } else {
-          console.error('location_records query failed:', locationError);
-        }
-        
         return;
       }
 
       console.log('Remote records fetched:', remoteRecords?.length || 0);
-      console.log('Raw remote records:', remoteRecords);
       
       if (!remoteRecords || remoteRecords.length === 0) {
         console.log('No remote records found');
@@ -167,17 +146,13 @@ export function useIndexedDB() {
         }
       });
 
-      console.log('Local records with Supabase IDs:', localRecordMap.size);
-
       // Process remote records and add missing ones to IndexedDB
       let newRecordsAdded = 0;
+      const recordsToAdd: NameEntry[] = [];
       
       for (const remoteRecord of remoteRecords) {
-        console.log('Processing remote record:', remoteRecord.id, remoteRecord.name);
-        
         // Skip if we already have this record locally
         if (localRecordMap.has(remoteRecord.id)) {
-          console.log('Skipping duplicate record:', remoteRecord.id);
           continue;
         }
 
@@ -195,36 +170,34 @@ export function useIndexedDB() {
           synced: true
         };
 
-        console.log('Adding new remote record to local DB:', localRecord.name);
-
-        // Add to IndexedDB using a new transaction for each record
-        try {
-          const newTransaction = database.transaction(['names'], 'readwrite');
-          const newStore = newTransaction.objectStore('names');
-          
-          await new Promise<void>((resolve, reject) => {
-            const addRequest = newStore.add(localRecord);
-            addRequest.onsuccess = () => {
-              console.log('Successfully added remote record to IndexedDB:', localRecord.name);
-              newRecordsAdded++;
-              resolve();
-            };
-            addRequest.onerror = () => {
-              console.error('Failed to add remote record to IndexedDB:', addRequest.error);
-              reject(addRequest.error);
-            };
-          });
-        } catch (error) {
-          console.error('Error adding remote record:', error);
-        }
+        recordsToAdd.push(localRecord);
       }
 
-      console.log('New records added to IndexedDB:', newRecordsAdded);
+      // Batch add all new records
+      if (recordsToAdd.length > 0) {
+        const addTransaction = database.transaction(['names'], 'readwrite');
+        const addStore = addTransaction.objectStore('names');
+        
+        for (const record of recordsToAdd) {
+          try {
+            await new Promise<void>((resolve, reject) => {
+              const addRequest = addStore.add(record);
+              addRequest.onsuccess = () => {
+                newRecordsAdded++;
+                resolve();
+              };
+              addRequest.onerror = () => reject(addRequest.error);
+            });
+          } catch (error) {
+            console.error('Error adding remote record:', error);
+          }
+        }
+        
+        console.log('Added', newRecordsAdded, 'new records from Supabase');
+      }
       
       // Reload all records from IndexedDB to update the state
-      if (newRecordsAdded > 0) {
-        await loadLocalNames(database);
-      }
+      await loadLocalNames(database);
 
     } catch (error) {
       console.error('Failed to fetch and merge remote records:', error);
