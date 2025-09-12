@@ -29,8 +29,6 @@ export function useIndexedDB() {
         setDb(database);
         
         // Always load local names first
-        
-        // Always load local names first
         await loadLocalNames(database);
         
         // Then fetch and merge remote records if online
@@ -145,7 +143,7 @@ export function useIndexedDB() {
           localRecordMap.set(record.supabaseId, record);
         }
       });
-      
+
       // Process remote records and add missing ones to IndexedDB
       let newRecordsAdded = 0;
       const recordsToAdd: NameEntry[] = [];
