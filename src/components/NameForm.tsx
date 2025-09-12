@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { User, Send, Check, MapPin, Clock } from 'lucide-react';
 import { useGeolocation } from '../hooks/useGeolocation';
 import { NetworkInfo, isSlowConnection } from '../hooks/useNetworkStatus';
+import { requestNotificationPermission } from '../utils/pwaUtils';
 
 interface NameFormProps {
   onSubmit: (name: string, location?: { latitude: number; longitude: number; accuracy: number }) => void;
@@ -33,6 +34,11 @@ export function NameForm({ onSubmit, networkInfo }: NameFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+
+    // Request notification permission on first user interaction
+    if (Notification.permission === 'default') {
+      await requestNotificationPermission();
+    }
 
     setIsSubmitting(true);
     

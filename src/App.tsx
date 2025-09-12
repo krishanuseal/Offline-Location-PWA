@@ -15,7 +15,8 @@ function App() {
 
   useEffect(() => {
     registerServiceWorker();
-    requestNotificationPermission();
+    // Don't request notification permission on app load
+    // It will be requested when user submits their first form
   }, []);
 
   const handleNameSubmit = async (name: string, location?: { latitude: number; longitude: number; accuracy: number }) => {

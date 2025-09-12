@@ -38,11 +38,14 @@ export function registerServiceWorker() {
 }
 
 export function requestNotificationPermission() {
+  // Only request permission when called explicitly by user interaction
   if ('Notification' in window && Notification.permission === 'default') {
-    Notification.requestPermission().then((permission) => {
+    return Notification.requestPermission().then((permission) => {
       console.log('Notification permission:', permission);
+      return permission;
     });
   }
+  return Promise.resolve(Notification.permission);
 }
 
 export function showNotification(title: string, options?: NotificationOptions) {
