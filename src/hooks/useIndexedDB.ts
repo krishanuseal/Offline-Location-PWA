@@ -22,6 +22,7 @@ export function useIndexedDB() {
   const [names, setNames] = useState<NameEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [recentlyDeletedIds, setRecentlyDeletedIds] = useState<Set<string>>(new Set());
 
   // Initialize database
   useEffect(() => {
@@ -166,21 +167,22 @@ export function useIndexedDB() {
       const deletedRecords = localRecords.filter(record => record.deleted && record.supabaseId);
       const deletedSupabaseIds = new Set(deletedRecords.map(record => record.supabaseId!));
       
+      // Combine excluded IDs with recently deleted IDs and locally deleted IDs
+      const allExcludedIds = new Set([
+        ...(excludeIds || []),
+        ...recentlyDeletedIds,
+        ...deletedSupabaseIds
+      ]);
+      
       for (const remoteRecord of remoteRecords) {
-        // Skip if this record was deleted in the current sync session
-        if (excludeIds && excludeIds.has(remoteRecord.id)) {
-          console.log('Skipping record deleted in this sync session:', remoteRecord.id);
+        // Skip if this record was deleted recently or locally
+        if (allExcludedIds.has(remoteRecord.id)) {
+          console.log('Skipping excluded record:', remoteRecord.id);
           continue;
         }
         
         // Skip if we already have this record locally (not deleted)
-        if (localRecordMap.has(remoteRecord.id) && !deletedSupabaseIds.has(remoteRecord.id)) {
-          continue;
-        }
-        
-        // Skip if this record was deleted locally
-        if (deletedSupabaseIds.has(remoteRecord.id)) {
-          console.log('Skipping remote record that was deleted locally:', remoteRecord.id);
+        if (localRecordMap.has(remoteRecord.id) && !allExcludedIds.has(remoteRecord.id)) {
           continue;
         }
         
@@ -353,6 +355,8 @@ export function useIndexedDB() {
             if (!error) {
               // Track this record as deleted in this sync session
               deletedInThisSync.add(deletedRecord.supabaseId!);
+              // Add to persistent recently deleted list
+              setRecentlyDeletedIds(prev => new Set([...prev, deletedRecord.supabaseId!]));
               
               // Remove the deleted record from local storage completely
               const deleteTransaction = db.transaction(['names'], 'readwrite');
@@ -397,6 +401,11 @@ export function useIndexedDB() {
       // Step 3: Pull any new records from server
       console.log('Pulling new records from server...');
       await fetchAndMergeRemoteRecords(db, deletedInThisSync);
+      
+      // Clear recently deleted IDs after successful sync (with a delay to handle multiple calls)
+      setTimeout(() => {
+        setRecentlyDeletedIds(new Set());
+      }, 5000); // Clear after 5 seconds
 
     } catch (error) {
       console.error('Failed to sync pending data:', error);
@@ -434,6 +443,10 @@ export function useIndexedDB() {
             
             const updateRequest = store.put(updatedRecord);
             updateRequest.onsuccess = () => {
+              // Add to recently deleted list to prevent resurrection
+              if (record.supabaseId) {
+                setRecentlyDeletedIds(prev => new Set([...prev, record.supabaseId!]));
+              }
               // Remove from UI immediately
               setNames(prev => prev.filter(name => name.id !== id));
               resolve();
