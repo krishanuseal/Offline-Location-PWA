@@ -347,12 +347,28 @@ export function useIndexedDB() {
         
         for (const deletedRecord of deletedRecords) {
           try {
-            const { error } = await supabase
+            console.log('Attempting to delete record from server:', deletedRecord.supabaseId);
+            const { data, error } = await supabase
               .from('onboarding_records')
               .delete()
-              .eq('id', deletedRecord.supabaseId);
+              .eq('id', deletedRecord.supabaseId)
+              .select();
             
-            if (!error) {
+            if (error) {
+              console.error('Failed to delete record from server:', error);
+              console.error('Error details:', {
+                message: error.message,
+                details: error.details,
+                hint: error.hint,
+                code: error.code
+              });
+              continue; // Skip this record and try the next one
+            }
+            
+            console.log('Server deletion response:', data);
+            
+            if (data && data.length > 0) {
+              console.log('Successfully deleted from server:', data[0]);
               // Track this record as deleted in this sync session
               deletedInThisSync.add(deletedRecord.supabaseId!);
               // Add to persistent recently deleted list
@@ -368,10 +384,18 @@ export function useIndexedDB() {
               });
               console.log('Deleted record from server and local storage:', deletedRecord.supabaseId);
             } else {
-              console.error('Failed to delete record from server:', error);
+              console.warn('No record was deleted from server (may not exist):', deletedRecord.supabaseId);
+              // Still remove from local storage since it doesn't exist on server
+              const deleteTransaction = db.transaction(['names'], 'readwrite');
+              const deleteStore = deleteTransaction.objectStore('names');
+              await new Promise<void>((resolve, reject) => {
+                const deleteRequest = deleteStore.delete(deletedRecord.id!);
+                deleteRequest.onsuccess = () => resolve();
+                deleteRequest.onerror = () => reject(deleteRequest.error);
+              });
             }
           } catch (error) {
-            console.error('Error deleting record:', error);
+            console.error('Exception while deleting record:', error);
           }
         }
       }
