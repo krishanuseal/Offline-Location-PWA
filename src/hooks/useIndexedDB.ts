@@ -13,6 +13,8 @@ export interface NameEntry {
   };
   timestamp: number;
   synced: boolean;
+  deleted?: boolean;
+  deletedAt?: number;
 }
 
 export function useIndexedDB() {
@@ -70,10 +72,21 @@ export function useIndexedDB() {
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
         
-        if (!db.objectStoreNames.contains('names')) {
-          const store = db.createObjectStore('names', { keyPath: 'id', autoIncrement: true });
-          store.createIndex('supabaseId', 'supabaseId', { unique: false });
-          store.createIndex('timestamp', 'timestamp', { unique: false });
+        // Handle version upgrades
+        const oldVersion = event.oldVersion;
+        
+        if (oldVersion < 1) {
+          // Version 1: Create initial store
+          if (!db.objectStoreNames.contains('names')) {
+            const store = db.createObjectStore('names', { keyPath: 'id', autoIncrement: true });
+            store.createIndex('supabaseId', 'supabaseId', { unique: false });
+            store.createIndex('timestamp', 'timestamp', { unique: false });
+          }
+        }
+        
+        if (oldVersion < 2) {
+          // Version 2: Add deletion tracking (no schema changes needed for existing records)
+          console.log('Upgraded to version 2: Added deletion tracking support');
         }
       };
     });
@@ -88,8 +101,9 @@ export function useIndexedDB() {
         const request = store.getAll();
         
         request.onsuccess = () => {
-          // Sort by timestamp DESC (most recent first)
-          const sortedNames = request.result.sort((a, b) => b.timestamp - a.timestamp);
+          // Filter out deleted records and sort by timestamp DESC (most recent first)
+          const activeRecords = request.result.filter((record: NameEntry) => !record.deleted);
+          const sortedNames = activeRecords.sort((a, b) => b.timestamp - a.timestamp);
           console.log('Loaded', sortedNames.length, 'records from IndexedDB');
           setNames(sortedNames);
           resolve();
@@ -148,10 +162,22 @@ export function useIndexedDB() {
       let newRecordsAdded = 0;
       const recordsToAdd: NameEntry[] = [];
       
+      // Get locally deleted records to check against
+      const deletedRecords = localRecords.filter(record => record.deleted && record.supabaseId);
+      const deletedSupabaseIds = new Set(deletedRecords.map(record => record.supabaseId!));
+      
       for (const remoteRecord of remoteRecords) {
-        if (localRecordMap.has(remoteRecord.id)) {
+        // Skip if we already have this record locally (not deleted)
+        if (localRecordMap.has(remoteRecord.id) && !deletedSupabaseIds.has(remoteRecord.id)) {
           continue;
         }
+        
+        // Skip if this record was deleted locally
+        if (deletedSupabaseIds.has(remoteRecord.id)) {
+          console.log('Skipping remote record that was deleted locally:', remoteRecord.id);
+          continue;
+        }
+        
         // Convert remote record to local format
         const localRecord: NameEntry = {
           supabaseId: remoteRecord.id,
@@ -294,14 +320,54 @@ export function useIndexedDB() {
     setIsSyncing(true);
 
     try {
-      // Step 1: Push unsynced local records to server
+      // Step 1: Handle deletions - delete records from server that were deleted locally
+      const allLocalRecords = await new Promise<NameEntry[]>((resolve, reject) => {
+        const transaction = db.transaction(['names'], 'readonly');
+        const store = transaction.objectStore('names');
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      
+      const deletedRecords = allLocalRecords.filter(record => record.deleted && record.supabaseId);
+      
+      if (deletedRecords.length > 0) {
+        console.log(`Deleting ${deletedRecords.length} records from server...`);
+        
+        for (const deletedRecord of deletedRecords) {
+          try {
+            const { error } = await supabase
+              .from('onboarding_records')
+              .delete()
+              .eq('id', deletedRecord.supabaseId);
+            
+            if (!error) {
+              // Remove the deleted record from local storage completely
+              const deleteTransaction = db.transaction(['names'], 'readwrite');
+              const deleteStore = deleteTransaction.objectStore('names');
+              await new Promise<void>((resolve, reject) => {
+                const deleteRequest = deleteStore.delete(deletedRecord.id!);
+                deleteRequest.onsuccess = () => resolve();
+                deleteRequest.onerror = () => reject(deleteRequest.error);
+              });
+              console.log('Deleted record from server and local storage:', deletedRecord.supabaseId);
+            } else {
+              console.error('Failed to delete record from server:', error);
+            }
+          } catch (error) {
+            console.error('Error deleting record:', error);
+          }
+        }
+      }
+      
+      // Step 2: Push unsynced local records to server
       const transaction = db.transaction(['names'], 'readonly');
       const store = transaction.objectStore('names');
       
       const unsyncedRecords = await new Promise<NameEntry[]>((resolve, reject) => {
         const request = store.getAll();
         request.onsuccess = () => {
-          const unsynced = request.result.filter(record => !record.synced);
+          const unsynced = request.result.filter(record => !record.synced && !record.deleted);
           resolve(unsynced);
         };
         request.onerror = () => reject(request.error);
@@ -316,7 +382,7 @@ export function useIndexedDB() {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      // Step 2: Pull any new records from server
+      // Step 3: Pull any new records from server
       console.log('Pulling new records from server...');
       await fetchAndMergeRemoteRecords(db);
 
@@ -334,15 +400,45 @@ export function useIndexedDB() {
       const transaction = db.transaction(['names'], 'readwrite');
       const store = transaction.objectStore('names');
       
+      // First, get the record to check if it has a supabaseId
+      const getRequest = store.get(id);
+      
       return new Promise<void>((resolve, reject) => {
-        const request = store.delete(id);
-        
-        request.onsuccess = () => {
-          setNames(prev => prev.filter(name => name.id !== id));
-          resolve();
+        getRequest.onsuccess = () => {
+          const record = getRequest.result as NameEntry;
+          
+          if (!record) {
+            resolve();
+            return;
+          }
+          
+          if (record.supabaseId && record.synced) {
+            // Mark as deleted instead of actually deleting (for synced records)
+            const updatedRecord = {
+              ...record,
+              deleted: true,
+              deletedAt: Date.now()
+            };
+            
+            const updateRequest = store.put(updatedRecord);
+            updateRequest.onsuccess = () => {
+              // Remove from UI immediately
+              setNames(prev => prev.filter(name => name.id !== id));
+              resolve();
+            };
+            updateRequest.onerror = () => reject(updateRequest.error);
+          } else {
+            // Actually delete unsynced records
+            const deleteRequest = store.delete(id);
+            deleteRequest.onsuccess = () => {
+              setNames(prev => prev.filter(name => name.id !== id));
+              resolve();
+            };
+            deleteRequest.onerror = () => reject(deleteRequest.error);
+          }
         };
         
-        request.onerror = () => reject(request.error);
+        getRequest.onerror = () => reject(getRequest.error);
       });
     } catch (error) {
       console.error('Failed to delete record:', error);
