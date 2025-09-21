@@ -116,7 +116,7 @@ export function useIndexedDB() {
     }
   };
 
-  const fetchAndMergeRemoteRecords = async (database: IDBDatabase) => {
+  const fetchAndMergeRemoteRecords = async (database: IDBDatabase, excludeIds?: Set<string>) => {
     if (isSyncing) return;
     
     setIsSyncing(true);
@@ -167,6 +167,12 @@ export function useIndexedDB() {
       const deletedSupabaseIds = new Set(deletedRecords.map(record => record.supabaseId!));
       
       for (const remoteRecord of remoteRecords) {
+        // Skip if this record was deleted in the current sync session
+        if (excludeIds && excludeIds.has(remoteRecord.id)) {
+          console.log('Skipping record deleted in this sync session:', remoteRecord.id);
+          continue;
+        }
+        
         // Skip if we already have this record locally (not deleted)
         if (localRecordMap.has(remoteRecord.id) && !deletedSupabaseIds.has(remoteRecord.id)) {
           continue;
@@ -318,6 +324,9 @@ export function useIndexedDB() {
     if (!db || isSyncing || !navigator.onLine) return;
     
     setIsSyncing(true);
+    
+    // Track records deleted in this sync session to prevent re-adding them
+    const deletedInThisSync = new Set<string>();
 
     try {
       // Step 1: Handle deletions - delete records from server that were deleted locally
@@ -342,6 +351,9 @@ export function useIndexedDB() {
               .eq('id', deletedRecord.supabaseId);
             
             if (!error) {
+              // Track this record as deleted in this sync session
+              deletedInThisSync.add(deletedRecord.supabaseId!);
+              
               // Remove the deleted record from local storage completely
               const deleteTransaction = db.transaction(['names'], 'readwrite');
               const deleteStore = deleteTransaction.objectStore('names');
@@ -384,7 +396,7 @@ export function useIndexedDB() {
       
       // Step 3: Pull any new records from server
       console.log('Pulling new records from server...');
-      await fetchAndMergeRemoteRecords(db);
+      await fetchAndMergeRemoteRecords(db, deletedInThisSync);
 
     } catch (error) {
       console.error('Failed to sync pending data:', error);
