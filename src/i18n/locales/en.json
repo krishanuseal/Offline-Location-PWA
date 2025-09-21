@@ -42,6 +42,12 @@
     "deleteRecord": "Delete record",
     "confirmDelete": "Are you sure you want to delete the record for '{{name}}'? This action cannot be undone."
   },
+  "sync": {
+    "button": "Sync",
+    "syncing": "Syncing...",
+    "tooltip": "Sync records with server database",
+    "offlineTooltip": "Cannot sync while offline"
+  },
   "language": {
     "switch": "Switch Language",
     "english": "English",

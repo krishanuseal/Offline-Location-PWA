@@ -1,14 +1,16 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Clock, CheckCircle, Upload, User, MapPin, Trash2 } from 'lucide-react';
+import { Clock, CheckCircle, Upload, User, MapPin, Trash2, RefreshCw } from 'lucide-react';
 import { NameEntry } from '../hooks/useIndexedDB';
 
 interface NamesListProps {
   names: NameEntry[];
+  isSyncing: boolean;
+  onSyncRecords: () => void;
   onDeleteRecord: (id: number) => void;
 }
 
-export function NamesList({ names, onDeleteRecord }: NamesListProps) {
+export function NamesList({ names, isSyncing, onSyncRecords, onDeleteRecord }: NamesListProps) {
   const { t } = useTranslation();
   
   const openLocationInMaps = (latitude: number, longitude: number) => {
@@ -93,7 +95,27 @@ export function NamesList({ names, onDeleteRecord }: NamesListProps) {
 
   return (
     <div className="space-y-3">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4">{t('records.title')}</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-800">{t('records.title')}</h3>
+        <button
+          onClick={onSyncRecords}
+          disabled={isSyncing || !navigator.onLine}
+          className={`
+            flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200
+            ${isSyncing || !navigator.onLine
+              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              : 'bg-blue-50 text-blue-600 hover:bg-blue-100 active:bg-blue-200'
+            }
+          `}
+          title={!navigator.onLine ? t('sync.offlineTooltip') : t('sync.tooltip')}
+        >
+          <RefreshCw 
+            size={16} 
+            className={isSyncing ? 'animate-spin' : ''} 
+          />
+          <span>{isSyncing ? t('sync.syncing') : t('sync.button')}</span>
+        </button>
+      </div>
       <div className="space-y-2 max-h-64 overflow-y-auto">
         {names.map((entry) => (
           <div

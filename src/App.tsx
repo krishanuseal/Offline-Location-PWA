@@ -74,7 +74,12 @@ function App() {
           
           {names.length > 0 && (
             <div className="border-t border-gray-200 p-6">
-              <NamesList names={names} onDeleteRecord={handleDeleteRecord} />
+              <NamesList 
+                names={names} 
+                isSyncing={isSyncing}
+                onSyncRecords={syncPendingData}
+                onDeleteRecord={handleDeleteRecord} 
+              />
             </div>
           )}
         </div>
