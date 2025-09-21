@@ -45,7 +45,7 @@
   "sync": {
     "button": "Sync",
     "syncing": "Syncing...",
-    "tooltip": "Sync records with server database",
+    "tooltip": "Sync records with server (push local changes and pull server updates)",
     "offlineTooltip": "Cannot sync while offline"
   },
   "language": {

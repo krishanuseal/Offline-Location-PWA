@@ -294,7 +294,7 @@ export function useIndexedDB() {
     setIsSyncing(true);
 
     try {
-      // Get all unsynced records
+      // Step 1: Push unsynced local records to server
       const transaction = db.transaction(['names'], 'readonly');
       const store = transaction.objectStore('names');
       
@@ -307,12 +307,18 @@ export function useIndexedDB() {
         request.onerror = () => reject(request.error);
       });
 
-      // Sync each unsynced record
+      console.log(`Pushing ${unsyncedRecords.length} unsynced records to server...`);
+      
+      // Push each unsynced record to server
       for (const record of unsyncedRecords) {
         await syncSingleRecord(record);
         // Small delay to prevent overwhelming the server
         await new Promise(resolve => setTimeout(resolve, 100));
       }
+      
+      // Step 2: Pull any new records from server
+      console.log('Pulling new records from server...');
+      await fetchAndMergeRemoteRecords(db);
 
     } catch (error) {
       console.error('Failed to sync pending data:', error);
